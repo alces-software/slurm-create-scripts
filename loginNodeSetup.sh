@@ -260,6 +260,52 @@ if ! ss -lunpt | grep -q ":53 "; then
     exit 1
 fi
 echo
+echo "Configuring loginNode to use local dnsmasq for DNS..."
+
+CLUSTER_CONNECTION="$(
+    nmcli -g GENERAL.CONNECTION device show "${CLUSTER_INTERFACE}" |
+        head -n1
+)"
+
+if [ -z "${CLUSTER_CONNECTION}" ] || [ "${CLUSTER_CONNECTION}" = "--" ]; then
+    echo
+    echo "ERROR: Could not determine NetworkManager connection for:"
+    echo "  ${CLUSTER_INTERFACE}"
+    exit 1
+fi
+
+EXTERNAL_CONNECTION="$(
+    nmcli -g GENERAL.CONNECTION device show "${EXTERNAL_INTERFACE}" |
+        head -n1
+)"
+
+nmcli connection modify "${CLUSTER_CONNECTION}" \
+    ipv4.dns "${CONTROLLER_IP}" \
+    ipv4.ignore-auto-dns yes
+
+if [ -n "${EXTERNAL_CONNECTION}" ] && [ "${EXTERNAL_CONNECTION}" != "--" ]; then
+    nmcli connection modify "${EXTERNAL_CONNECTION}" \
+        ipv4.ignore-auto-dns yes
+fi
+
+nmcli connection up "${CLUSTER_CONNECTION}"
+
+if [ -n "${EXTERNAL_CONNECTION}" ] && [ "${EXTERNAL_CONNECTION}" != "--" ]; then
+    nmcli connection up "${EXTERNAL_CONNECTION}"
+fi
+
+echo
+echo "Verifying loginNode local DNS resolution..."
+
+if ! getent hosts node01 >/dev/null 2>&1; then
+    echo
+    echo "ERROR: loginNode cannot resolve node01 via local dnsmasq."
+    echo
+    cat /etc/resolv.conf
+    exit 1
+fi
+
+echo "loginNode DNS is using local dnsmasq."
 echo "Configuring NFS server..."
 
 mkdir -p "${NFS_EXPORT}"
